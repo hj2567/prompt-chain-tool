@@ -5,10 +5,11 @@ import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 
 export default function AuthCallback() {
   useEffect(() => {
-    const supabase = getSupabaseBrowserClient();
+    const run = async () => {
+      const supabase = getSupabaseBrowserClient();
 
-    const finish = async () => {
-      await supabase.auth.getSession();
+      // THIS finishes the OAuth flow
+      await supabase.auth.exchangeCodeForSession(window.location.href);
 
       const next =
         sessionStorage.getItem("post_auth_next") ||
@@ -16,10 +17,11 @@ export default function AuthCallback() {
         "/flavors";
 
       sessionStorage.removeItem("post_auth_next");
+
       window.location.replace(next);
     };
 
-    finish();
+    run();
   }, []);
 
   return null;
