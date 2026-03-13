@@ -7,7 +7,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 export default function AuthClient() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const next = params.get("next") || "/rate";
+    const next = params.get("next") || "/flavors";
 
     const onPageShow = (e: PageTransitionEvent) => {
       if (e.persisted) {
