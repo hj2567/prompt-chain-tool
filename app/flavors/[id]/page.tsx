@@ -1321,6 +1321,25 @@ export default function FlavorDetailPage({
     window.location.href = "/flavors";
   }
 
+  function parseAlmostcrackdErrorBody(txt: string, status: number): string {
+    const trimmed = txt.trim();
+    if (!trimmed) return `Request failed (${status})`;
+    try {
+      const j = JSON.parse(trimmed) as {
+        message?: string;
+        statusMessage?: string;
+        error?: boolean;
+      };
+      if (j && typeof j === "object") {
+        const m = j.message || j.statusMessage;
+        if (typeof m === "string" && m.length > 0) return m;
+      }
+    } catch {
+      // Body is not JSON (e.g. plain text error page)
+    }
+    return trimmed.length > 500 ? `${trimmed.slice(0, 500)}…` : trimmed;
+  }
+
   async function apiPost<T,>(path: string, body: any): Promise<T> {
     const res = await fetch(`https://api.almostcrackd.ai${path}`, {
       method: "POST",
@@ -1334,7 +1353,7 @@ export default function FlavorDetailPage({
     const txt = await res.text();
 
     if (!res.ok) {
-      throw new Error(txt || `Request failed (${res.status})`);
+      throw new Error(parseAlmostcrackdErrorBody(txt, res.status));
     }
 
     try {
@@ -1344,8 +1363,39 @@ export default function FlavorDetailPage({
     }
   }
 
-  async function uploadImageFromUrl(imageUrl: string) {
-    const step = await apiPost<{ imageId: string }>(
+  /** Pipeline may return a caption request id from upload or generate steps. */
+  function extractCaptionRequestIdFromPayload(input: unknown): number | null {
+    if (input == null) return null;
+    const pick = (v: unknown): number | null => {
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+      if (typeof v === "string" && /^\d+$/.test(v)) return Number(v);
+      return null;
+    };
+    if (typeof input !== "object") return null;
+    const r = input as Record<string, unknown>;
+    const direct =
+      pick(r.captionRequestId) ??
+      pick(r.caption_request_id) ??
+      pick(r.requestId) ??
+      pick(r.request_id);
+    if (direct != null) return direct;
+    const data = r.data;
+    if (data && typeof data === "object") {
+      const d = data as Record<string, unknown>;
+      return (
+        pick(d.captionRequestId) ??
+        pick(d.caption_request_id) ??
+        pick(d.id)
+      );
+    }
+    return null;
+  }
+
+  async function uploadImageFromUrl(imageUrl: string): Promise<{
+    imageId: string;
+    captionRequestId: number | null;
+  }> {
+    const step = await apiPost<Record<string, unknown>>(
       "/pipeline/upload-image-from-url",
       {
         imageUrl,
@@ -1353,11 +1403,63 @@ export default function FlavorDetailPage({
       }
     );
 
-    if (!step?.imageId) {
+    const imageId = step?.imageId;
+    if (typeof imageId !== "string" || !imageId) {
       throw new Error("Bad response from upload-image-from-url");
     }
 
-    return step.imageId;
+    return {
+      imageId,
+      captionRequestId: extractCaptionRequestIdFromPayload(step),
+    };
+  }
+
+  /**
+   * llm_model_responses.caption_request_id is NOT NULL — create a parent row when the API did not return one.
+   */
+  async function ensureCaptionRequestId(params: {
+    supabase: ReturnType<typeof getSupabaseBrowserClient>;
+    profileId: string;
+    imageId: string;
+    pipelineResult: unknown;
+    fromUpload: number | null;
+  }): Promise<number> {
+    const fromGenerate = extractCaptionRequestIdFromPayload(
+      params.pipelineResult
+    );
+    if (fromGenerate != null) return fromGenerate;
+    if (params.fromUpload != null) return params.fromUpload;
+
+    const { data, error } = await params.supabase
+      .from("caption_requests")
+      .insert({
+        profile_id: params.profileId,
+        image_id: params.imageId,
+      })
+      .select("id")
+      .single();
+
+    if (error || data == null || data.id == null) {
+      console.error("caption_requests insert:", error);
+      throw new Error(
+        error?.message ??
+          "Could not create caption_requests row (needed for caption_request_id). Check table columns (e.g. image_id) and RLS."
+      );
+    }
+
+    return Number(data.id);
+  }
+
+  /** API sometimes returns 200 with `{ error: true, message }` instead of captions. */
+  function isPipelineErrorPayload(input: unknown): input is {
+    error: true;
+    message?: string;
+  } {
+    return (
+      !!input &&
+      typeof input === "object" &&
+      (input as { error?: unknown }).error === true
+    );
   }
 
   function normalizeCaptions(input: any): string[] {
@@ -1397,6 +1499,61 @@ export default function FlavorDetailPage({
     }
   }
 
+  async function persistRunCaptionsToSupabase(
+    captions: string[],
+    processingTimeSeconds: number,
+    captionRequestId: number
+  ) {
+    if (captions.length === 0 || Number.isNaN(flavorId)) return;
+
+    const supabase = getSupabaseBrowserClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const profileId = session?.user?.id;
+    if (!profileId) {
+      throw new Error("Not signed in; cannot save captions.");
+    }
+
+    const sortedSteps = [...steps].sort(
+      (a, b) => (a.order_by ?? 0) - (b.order_by ?? 0)
+    );
+    const lastStep = sortedSteps[sortedSteps.length - 1];
+
+    const raw = Number.isFinite(processingTimeSeconds)
+      ? Math.max(0, processingTimeSeconds)
+      : 0;
+    const seconds = Math.min(32767, Math.round(raw));
+
+    const llmSystemPrompt =
+      lastStep?.llm_system_prompt?.trim() ||
+      "(humor flavor admin test — no system prompt on last step)";
+    const llmUserPrompt =
+      lastStep?.llm_user_prompt?.trim() ||
+      "(humor flavor admin test — no user prompt on last step)";
+
+    const row = {
+      humor_flavor_id: flavorId,
+      humor_flavor_step_id: lastStep?.id ?? null,
+      llm_model_id: lastStep?.llm_model_id ?? null,
+      llm_temperature: lastStep?.llm_temperature ?? null,
+      llm_system_prompt: llmSystemPrompt,
+      llm_user_prompt: llmUserPrompt,
+      llm_model_response: captions, // save whole run together
+      profile_id: profileId,
+      caption_request_id: captionRequestId,
+      processing_time_seconds: seconds,
+    };
+
+    const { error } = await supabase.from("llm_model_responses").insert(row);
+
+    if (error) {
+      console.error("persistRunCaptionsToSupabase:", error);
+      throw new Error(error.message || "Failed to save captions");
+    }
+  }
+
   async function handleRunFlavor() {
     if (!sessionReady || !accessToken) {
       alert("Session not ready.");
@@ -1412,14 +1569,63 @@ export default function FlavorDetailPage({
     setStepOutputs([]);
 
     try {
-      const imageId = await uploadImageFromUrl(testImageUrl.trim());
+      const { imageId, captionRequestId: captionRequestIdFromUpload } =
+        await uploadImageFromUrl(testImageUrl.trim());
 
+      // Only send fields the pipeline expects; extra keys have caused server errors.
+      const genStarted = performance.now();
       const result = await apiPost<any>("/pipeline/generate-captions", {
         imageId,
       });
+      const processingTimeSeconds = Math.max(
+        0,
+        (performance.now() - genStarted) / 1000
+      );
+
+      if (isPipelineErrorPayload(result)) {
+        throw new Error(
+          typeof result.message === "string" && result.message.length > 0
+            ? result.message
+            : "Caption generation failed (API returned an error payload)."
+        );
+      }
 
       const captions = normalizeCaptions(result);
       setStepOutputs(captions);
+
+      const supabase = getSupabaseBrowserClient();
+      const {
+        data: { session: persistSession },
+      } = await supabase.auth.getSession();
+      const persistUserId = persistSession?.user?.id;
+      if (!persistUserId) {
+        throw new Error("Not signed in; cannot save captions.");
+      }
+
+      const captionRequestId = await ensureCaptionRequestId({
+        supabase,
+        profileId: persistUserId,
+        imageId,
+        pipelineResult: result,
+        fromUpload: captionRequestIdFromUpload,
+      });
+
+      try {
+        await persistRunCaptionsToSupabase(
+          captions,
+          processingTimeSeconds,
+          captionRequestId
+        );
+      } catch (persistErr: unknown) {
+        const msg =
+          persistErr instanceof Error
+            ? persistErr.message
+            : "Unknown error saving captions";
+        console.error("Save captions to Supabase:", persistErr);
+        alert(
+          `Captions were generated but could not be saved to llm_model_responses: ${msg}`
+        );
+      }
       await fetchFlavorResponses();
     } catch (err: any) {
       console.error("Run flavor error:", err);
