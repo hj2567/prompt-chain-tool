@@ -3,6 +3,8 @@
 import { useEffect } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 
+const POST_AUTH_NEXT_KEY = "post_auth_next";
+
 export default function AuthCallback() {
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();

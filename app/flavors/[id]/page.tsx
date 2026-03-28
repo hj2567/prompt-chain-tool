@@ -3,9 +3,11 @@
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { use, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  shouldDenyNonLocalAdminEmail,
+  shouldGrantLocalDevAdminBypass,
+} from "@/lib/localOnlyAdmin";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
-
-const DEV_ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_DEV_BYPASS_EMAIL;
 const THEME_STORAGE_KEY = "humor-flavors-theme-mode";
 
 type Step = {
@@ -922,11 +924,16 @@ export default function FlavorDetailPage({
       return;
     }
 
-    if (
-      DEV_ADMIN_EMAIL &&
-      session.user.email &&
-      session.user.email === DEV_ADMIN_EMAIL
-    ) {
+    if (shouldDenyNonLocalAdminEmail(session.user.email)) {
+      setAuthError(
+        "This account is only allowed admin access on the local server."
+      );
+      setIsAllowedAdmin(false);
+      setAuthChecked(true);
+      return;
+    }
+
+    if (shouldGrantLocalDevAdminBypass(session.user.email)) {
       setIsAllowedAdmin(true);
       setAuthChecked(true);
       return;
