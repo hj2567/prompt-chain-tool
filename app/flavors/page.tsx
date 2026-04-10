@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { CSSProperties, ReactNode } from "react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { duplicateHumorFlavor } from "@/lib/duplicateHumorFlavor";
 import {
   shouldDenyNonLocalAdminEmail,
   shouldGrantLocalDevAdminBypass,
@@ -345,6 +347,10 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
       gap: 14,
     },
+    flavorCardWrap: {
+      display: "grid",
+      gap: 10,
+    },
     flavorCard: {
       borderRadius: 20,
       padding: 18,
@@ -415,6 +421,32 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       fontSize: 14,
       lineHeight: 1.4,
       wordBreak: "break-word",
+    },
+    duplicateModalOverlay: {
+      position: "fixed",
+      inset: 0,
+      zIndex: 60,
+      background: "rgba(6, 7, 10, 0.72)",
+      display: "grid",
+      placeItems: "center",
+      padding: 20,
+    },
+    duplicateModalCard: {
+      width: "100%",
+      maxWidth: 460,
+      borderRadius: 20,
+      padding: 22,
+      border: t.cardBorder,
+      background: t.cardBg,
+      boxShadow: t.shadow,
+      backdropFilter: "blur(10px)",
+    },
+    duplicateModalActions: {
+      marginTop: 16,
+      display: "flex",
+      gap: 10,
+      flexWrap: "wrap",
+      justifyContent: "flex-end",
     },
 
     empty: {
@@ -488,11 +520,15 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
 }
 
 export default function FlavorsPage() {
+  const router = useRouter();
   const [flavors, setFlavors] = useState<Flavor[]>([]);
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [duplicateTarget, setDuplicateTarget] = useState<Flavor | null>(null);
+  const [duplicateSlugInput, setDuplicateSlugInput] = useState("");
+  const [isDuplicating, setIsDuplicating] = useState(false);
 
   const [themeMode, setThemeMode] = useState<ThemeMode>("system");
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>("dark");
@@ -683,6 +719,31 @@ export default function FlavorsPage() {
     const supabase = getSupabaseBrowserClient();
     await supabase.auth.signOut();
     window.location.replace("/");
+  }
+
+  function openDuplicateDialog(flavor: Flavor) {
+    setDuplicateTarget(flavor);
+    setDuplicateSlugInput(`${flavor.slug}-copy`);
+  }
+
+  async function confirmDuplicateFlavor() {
+    if (!duplicateTarget) return;
+
+    const supabase = getSupabaseBrowserClient();
+    setIsDuplicating(true);
+    try {
+      const { newFlavorId } = await duplicateHumorFlavor(supabase, {
+        sourceFlavorId: duplicateTarget.id,
+        newSlug: duplicateSlugInput,
+      });
+      setDuplicateTarget(null);
+      await fetchFlavors();
+      router.push(`/flavors/${newFlavorId}`);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Duplicate failed.");
+    } finally {
+      setIsDuplicating(false);
+    }
   }
 
   const themeButtonStyle = (mode: ThemeMode): CSSProperties => ({
@@ -990,42 +1051,117 @@ export default function FlavorsPage() {
           ) : (
             <div style={ui.flavorGrid}>
               {flavors.map((flavor) => (
-                <Link
-                  key={flavor.id}
-                  href={`/flavors/${flavor.id}`}
-                  style={ui.flavorCard}
-                >
-                  <div style={ui.flavorTopRow}>
-                    <div style={ui.flavorBadge}>FLAVOR {flavor.id}</div>
-                    <span style={ui.smallPill}>Open →</span>
-                  </div>
-
-                  <div style={ui.flavorSlug}>{flavor.slug}</div>
-
-                  <div style={ui.flavorDescription}>
-                    {flavor.description || "No description"}
-                  </div>
-
-                  <div style={ui.metaRow}>
-                    <div style={ui.metaItem}>
-                      <div style={ui.metaLabel}>ID</div>
-                      <div style={ui.metaValue}>{flavor.id}</div>
+                <div key={flavor.id} style={ui.flavorCardWrap}>
+                  <Link href={`/flavors/${flavor.id}`} style={ui.flavorCard}>
+                    <div style={ui.flavorTopRow}>
+                      <div style={ui.flavorBadge}>FLAVOR {flavor.id}</div>
+                      <span style={ui.smallPill}>Open →</span>
                     </div>
 
-                    <div style={ui.metaItem}>
-                      <div style={ui.metaLabel}>Status</div>
-                      <div style={ui.metaValue}>
-                        {flavor.description?.trim()
-                          ? "Documented"
-                          : "Undocumented"}
+                    <div style={ui.flavorSlug}>{flavor.slug}</div>
+
+                    <div style={ui.flavorDescription}>
+                      {flavor.description || "No description"}
+                    </div>
+
+                    <div style={ui.metaRow}>
+                      <div style={ui.metaItem}>
+                        <div style={ui.metaLabel}>ID</div>
+                        <div style={ui.metaValue}>{flavor.id}</div>
+                      </div>
+
+                      <div style={ui.metaItem}>
+                        <div style={ui.metaLabel}>Status</div>
+                        <div style={ui.metaValue}>
+                          {flavor.description?.trim()
+                            ? "Documented"
+                            : "Undocumented"}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </Link>
+                  </Link>
+
+                  <button
+                    type="button"
+                    onClick={() => openDuplicateDialog(flavor)}
+                    style={{
+                      ...ui.secondaryActionBtn,
+                      width: "100%",
+                      justifySelf: "stretch",
+                    }}
+                  >
+                    Duplicate…
+                  </button>
+                </div>
               ))}
             </div>
           )}
         </section>
+        {duplicateTarget ? (
+          <div
+            style={ui.duplicateModalOverlay}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="dup-dialog-title"
+            onClick={() => !isDuplicating && setDuplicateTarget(null)}
+          >
+            <div
+              style={ui.duplicateModalCard}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div style={ui.cardHeader}>
+                <div>
+                  <div style={ui.cardTitle} id="dup-dialog-title">
+                    Duplicate flavor
+                  </div>
+                  <div style={ui.cardSub}>
+                    Copy <code style={ui.codeInline}>{duplicateTarget.slug}</code>{" "}
+                    and all of its steps. Choose a new unique slug.
+                  </div>
+                </div>
+              </div>
+
+              <Field ui={ui} label="New slug">
+                <input
+                  value={duplicateSlugInput}
+                  onChange={(e) => setDuplicateSlugInput(e.target.value)}
+                  placeholder="e.g. my-flavor-v2"
+                  style={ui.input}
+                  disabled={isDuplicating}
+                  autoFocus
+                />
+              </Field>
+
+              <div style={{ marginTop: 10, fontSize: 13, opacity: 0.75 }}>
+                Preview:{" "}
+                <code style={ui.codeInline}>
+                  {duplicateSlugInput.trim()
+                    ? slugify(duplicateSlugInput)
+                    : "—"}
+                </code>
+              </div>
+
+              <div style={ui.duplicateModalActions}>
+                <button
+                  type="button"
+                  disabled={isDuplicating}
+                  onClick={() => setDuplicateTarget(null)}
+                  style={ui.secondaryActionBtn}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDuplicating}
+                  onClick={() => void confirmDuplicateFlavor()}
+                  style={ui.primaryBtn}
+                >
+                  {isDuplicating ? "Duplicating…" : "Create copy"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </main>
   );
