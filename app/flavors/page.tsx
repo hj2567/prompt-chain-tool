@@ -10,6 +10,7 @@ import {
   shouldGrantLocalDevAdminBypass,
 } from "@/lib/localOnlyAdmin";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
+
 const THEME_STORAGE_KEY = "humor-flavors-theme-mode";
 
 type Flavor = {
@@ -118,7 +119,7 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
     wrap: {
       position: "relative",
       zIndex: 2,
-      maxWidth: 1380,
+      maxWidth: 1600,
       margin: "0 auto",
       padding: "28px 22px 40px",
     },
@@ -156,6 +157,18 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       transition: slowTransition,
     },
     smallPill: {
+      display: "inline-flex",
+      alignItems: "center",
+      padding: "6px 10px",
+      borderRadius: 999,
+      border: t.pillBorder,
+      background: t.pillBg,
+      fontWeight: 900,
+      fontSize: 12,
+      opacity: 0.9,
+      transition: slowTransition,
+    },
+    flavorOpenPill: {
       display: "inline-flex",
       alignItems: "center",
       padding: "6px 10px",
@@ -344,14 +357,15 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
     flavorGrid: {
       marginTop: 14,
       display: "grid",
-      gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-      gap: 14,
+      gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+      gap: 18,
+      alignItems: "stretch",
     },
     flavorCardWrap: {
-      display: "grid",
-      gap: 10,
+      minWidth: 0,
     },
     flavorCard: {
+      minHeight: 360,
       borderRadius: 20,
       padding: 18,
       border: t.cardBorder,
@@ -359,7 +373,8 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       boxShadow: t.shadow,
       textDecoration: "none",
       color: t.text,
-      display: "grid",
+      display: "flex",
+      flexDirection: "column",
       gap: 12,
       transition: slowTransition,
     },
@@ -368,7 +383,33 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       alignItems: "center",
       justifyContent: "space-between",
       gap: 10,
-      flexWrap: "wrap",
+    },
+    flavorTopLeft: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      minWidth: 0,
+    },
+    flavorTopRight: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      flexShrink: 0,
+    },
+    duplicateBtn: {
+      width: "100%",
+      height: 44,
+      padding: "12px 16px",
+      borderRadius: 14,
+      fontWeight: 950,
+      border: t.cardBorder,
+      background: t.mutedBg,
+      color: t.text,
+      cursor: "pointer",
+      transition: slowTransition,
+    },
+    cardButtonRow: {
+      marginTop: 12,
     },
     flavorBadge: {
       display: "inline-flex",
@@ -388,16 +429,21 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       fontWeight: 950,
       letterSpacing: -0.6,
       wordBreak: "break-word",
+      overflowWrap: "anywhere",
     },
     flavorDescription: {
       opacity: 0.78,
       lineHeight: 1.55,
-      minHeight: 48,
-      whiteSpace: "pre-wrap",
+      display: "-webkit-box",
+      WebkitLineClamp: 3,
+      WebkitBoxOrient: "vertical",
+      overflow: "hidden",
       wordBreak: "break-word",
+      overflowWrap: "anywhere",
     },
 
     metaRow: {
+      marginTop: "auto",
       display: "grid",
       gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
       gap: 10,
@@ -470,15 +516,6 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
     },
     loadingTitle: { fontWeight: 950, fontSize: 16 },
     loadingSub: { marginTop: 6, opacity: 0.7 },
-
-    errorCard: {
-      marginTop: 18,
-      borderRadius: 20,
-      padding: 18,
-      border: t.dangerBorder,
-      background: t.dangerBg,
-      transition: slowTransition,
-    },
 
     bgGradient: {
       position: "absolute",
@@ -731,11 +768,13 @@ export default function FlavorsPage() {
 
     const supabase = getSupabaseBrowserClient();
     setIsDuplicating(true);
+
     try {
       const { newFlavorId } = await duplicateHumorFlavor(supabase, {
         sourceFlavorId: duplicateTarget.id,
         newSlug: duplicateSlugInput,
       });
+
       setDuplicateTarget(null);
       await fetchFlavors();
       router.push(`/flavors/${newFlavorId}`);
@@ -820,8 +859,7 @@ export default function FlavorsPage() {
                 }}
               >
                 Your account is signed in, but it doesn&apos;t have{" "}
-                <code style={ui.codeInline}>profiles.is_superadmin</code>{" "}
-                or{" "}
+                <code style={ui.codeInline}>profiles.is_superadmin</code> or{" "}
                 <code style={ui.codeInline}>profiles.is_matrix_admin</code>.
               </div>
             </div>
@@ -1054,8 +1092,13 @@ export default function FlavorsPage() {
                 <div key={flavor.id} style={ui.flavorCardWrap}>
                   <Link href={`/flavors/${flavor.id}`} style={ui.flavorCard}>
                     <div style={ui.flavorTopRow}>
-                      <div style={ui.flavorBadge}>FLAVOR {flavor.id}</div>
-                      <span style={ui.smallPill}>Open →</span>
+                      <div style={ui.flavorTopLeft}>
+                        <div style={ui.flavorBadge}>FLAVOR {flavor.id}</div>
+                      </div>
+
+                      <div style={ui.flavorTopRight}>
+                        <span style={ui.flavorOpenPill}>Open →</span>
+                      </div>
                     </div>
 
                     <div style={ui.flavorSlug}>{flavor.slug}</div>
@@ -1079,24 +1122,27 @@ export default function FlavorsPage() {
                         </div>
                       </div>
                     </div>
-                  </Link>
 
-                  <button
-                    type="button"
-                    onClick={() => openDuplicateDialog(flavor)}
-                    style={{
-                      ...ui.secondaryActionBtn,
-                      width: "100%",
-                      justifySelf: "stretch",
-                    }}
-                  >
-                    Duplicate…
-                  </button>
+                    <div style={ui.cardButtonRow}>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          openDuplicateDialog(flavor);
+                        }}
+                        style={ui.duplicateBtn}
+                      >
+                        Duplicate…
+                      </button>
+                    </div>
+                  </Link>
                 </div>
               ))}
             </div>
           )}
         </section>
+
         {duplicateTarget ? (
           <div
             style={ui.duplicateModalOverlay}
