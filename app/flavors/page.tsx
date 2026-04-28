@@ -12,6 +12,8 @@ import {
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 
 const THEME_STORAGE_KEY = "humor-flavors-theme-mode";
+const RECENT_FLAVORS_STORAGE_KEY = "humor-flavors-recently-opened";
+const PAGE_SIZE = 50;
 
 type Flavor = {
   id: number;
@@ -21,6 +23,9 @@ type Flavor = {
 
 type ThemeMode = "system" | "light" | "dark";
 type ResolvedTheme = "light" | "dark";
+type ViewMode = "table" | "cards";
+type StatusFilter = "all" | "documented" | "undocumented";
+type SortMode = "id-asc" | "id-desc" | "slug-asc" | "slug-desc";
 
 function slugify(value: string) {
   return value
@@ -29,6 +34,11 @@ function slugify(value: string) {
     .replace(/[^a-z0-9\s-]/g, "")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-");
+}
+
+function getFlavorDisplayName(flavor: Flavor) {
+  const cleanSlug = flavor.slug?.trim();
+  return cleanSlug || `Flavor ${flavor.id}`;
 }
 
 const fontFamily =
@@ -130,8 +140,7 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       gap: 16,
       flexWrap: "wrap",
     },
-
-    kickerRow: { display: "flex", gap: 10, alignItems: "center" },
+    kickerRow: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" },
     kicker: {
       display: "inline-flex",
       alignItems: "center",
@@ -168,19 +177,6 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       opacity: 0.9,
       transition: slowTransition,
     },
-    flavorOpenPill: {
-      display: "inline-flex",
-      alignItems: "center",
-      padding: "6px 10px",
-      borderRadius: 999,
-      border: t.pillBorder,
-      background: t.pillBg,
-      fontWeight: 900,
-      fontSize: 12,
-      opacity: 0.9,
-      transition: slowTransition,
-    },
-
     themeToggleGroup: {
       display: "inline-flex",
       gap: 6,
@@ -208,7 +204,6 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       opacity: 1,
       boxShadow: t.shadow,
     },
-
     h1: {
       fontSize: 58,
       lineHeight: 0.95,
@@ -222,7 +217,6 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       maxWidth: 760,
       transition: slowTransition,
     },
-
     secondaryActionBtn: {
       height: 44,
       padding: "12px 16px",
@@ -234,7 +228,6 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       cursor: "pointer",
       transition: slowTransition,
     },
-
     primaryBtn: {
       height: 40,
       padding: "10px 14px",
@@ -246,7 +239,6 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       cursor: "pointer",
       transition: slowTransition,
     },
-
     kpiGrid: {
       display: "grid",
       gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
@@ -270,10 +262,19 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       letterSpacing: -1,
     },
     kpiSub: { opacity: 0.7, marginTop: 4 },
-
     card: {
       borderRadius: 20,
       padding: 18,
+      border: t.cardBorder,
+      background: t.cardBg,
+      boxShadow: t.shadow,
+      backdropFilter: "blur(10px)",
+      marginTop: 16,
+      transition: slowTransition,
+    },
+    compactCard: {
+      borderRadius: 20,
+      padding: 14,
       border: t.cardBorder,
       background: t.cardBg,
       boxShadow: t.shadow,
@@ -290,20 +291,17 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
     },
     cardTitle: { fontWeight: 950, fontSize: 16 },
     cardSub: { opacity: 0.7, fontSize: 12, marginTop: 4 },
-
     fieldLabel: {
       fontSize: 12,
       opacity: 0.7,
       fontWeight: 900,
     },
-
     formGrid1: {
       display: "grid",
       gridTemplateColumns: "1fr",
       gap: 12,
       marginTop: 12,
     },
-
     input: {
       height: 42,
       padding: "10px 12px",
@@ -315,7 +313,17 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       width: "100%",
       transition: slowTransition,
     },
-
+    select: {
+      height: 42,
+      padding: "10px 12px",
+      borderRadius: 14,
+      border: t.inputBorder,
+      background: t.inputBg,
+      color: t.text,
+      outline: "none",
+      width: "100%",
+      transition: slowTransition,
+    },
     textareaLarge: {
       minHeight: 140,
       padding: "12px 14px",
@@ -330,7 +338,6 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       lineHeight: 1.55,
       transition: slowTransition,
     },
-
     infoCard: {
       marginTop: 14,
       padding: 14,
@@ -343,29 +350,193 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       fontSize: 13,
       transition: slowTransition,
     },
-
     codeInline: {
-      fontFamily:
-        'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
       fontSize: "0.95em",
       padding: "3px 8px",
       borderRadius: 6,
       background: t.mutedBg,
       transition: slowTransition,
     },
-
+    toolbar: {
+      display: "grid",
+      gridTemplateColumns: "minmax(280px, 1fr) 180px 180px max-content",
+      gap: 10,
+      marginTop: 14,
+      alignItems: "end",
+    },
+    viewToggle: {
+      display: "inline-flex",
+      width: "max-content",
+      gap: 4,
+      padding: 4,
+      borderRadius: 14,
+      border: t.cardBorder,
+      background: t.mutedBg,
+      alignItems: "center",
+      justifySelf: "start",
+      transition: slowTransition,
+    },
+    viewToggleBtn: {
+      height: 34,
+      minWidth: 74,
+      padding: "0 12px",
+      borderRadius: 10,
+      border: "none",
+      background: "transparent",
+      color: t.text,
+      cursor: "pointer",
+      fontWeight: 900,
+      opacity: 0.72,
+      transition: slowTransition,
+    },
+    viewToggleBtnActive: {
+      background: t.pillBg,
+      opacity: 1,
+      boxShadow: t.shadow,
+    },
+    recentGrid: {
+      display: "grid",
+      gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+      gap: 10,
+      marginTop: 14,
+    },
+    recentLink: {
+      minWidth: 0,
+      padding: 12,
+      borderRadius: 16,
+      border: t.mutedBorder,
+      background: t.mutedBg,
+      color: t.text,
+      textDecoration: "none",
+      transition: slowTransition,
+    },
+    recentTitle: {
+      fontWeight: 950,
+      fontSize: 14,
+      overflow: "hidden",
+      whiteSpace: "nowrap",
+      textOverflow: "ellipsis",
+    },
+    recentSub: {
+      marginTop: 4,
+      fontSize: 12,
+      opacity: 0.7,
+    },
+    tableWrap: {
+      marginTop: 14,
+      overflow: "auto",
+      borderRadius: 16,
+      border: t.mutedBorder,
+      background: t.mutedBg,
+      transition: slowTransition,
+    },
+    table: {
+      width: "100%",
+      borderCollapse: "collapse",
+      minWidth: 940,
+    },
+    th: {
+      textAlign: "left",
+      padding: "12px 14px",
+      fontSize: 11,
+      letterSpacing: 0.8,
+      textTransform: "uppercase",
+      opacity: 0.68,
+      borderBottom: t.mutedBorder,
+      whiteSpace: "nowrap",
+    },
+    td: {
+      padding: "12px 14px",
+      borderBottom: t.mutedBorder,
+      verticalAlign: "middle",
+      fontSize: 14,
+    },
+    rowLink: {
+      color: t.text,
+      textDecoration: "none",
+      fontWeight: 950,
+      overflowWrap: "anywhere",
+    },
+    tableDescription: {
+      opacity: 0.72,
+      maxWidth: 560,
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    },
+    actionRow: {
+      display: "flex",
+      gap: 8,
+      justifyContent: "flex-end",
+      flexWrap: "wrap",
+    },
+    actionLink: {
+      height: 34,
+      padding: "0 12px",
+      borderRadius: 10,
+      border: t.cardBorder,
+      background: t.pillBg,
+      color: t.text,
+      display: "inline-flex",
+      alignItems: "center",
+      textDecoration: "none",
+      fontWeight: 900,
+      transition: slowTransition,
+    },
+    duplicateSmallBtn: {
+      height: 34,
+      padding: "0 12px",
+      borderRadius: 10,
+      fontWeight: 900,
+      border: t.cardBorder,
+      background: t.mutedBg,
+      color: t.text,
+      cursor: "pointer",
+      transition: slowTransition,
+    },
+    pager: {
+      marginTop: 14,
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: 12,
+      flexWrap: "wrap",
+    },
+    pagerBtns: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      flexWrap: "wrap",
+    },
+    pagerBtn: {
+      height: 36,
+      padding: "0 12px",
+      borderRadius: 10,
+      border: t.cardBorder,
+      background: t.mutedBg,
+      color: t.text,
+      cursor: "pointer",
+      fontWeight: 900,
+      transition: slowTransition,
+    },
     flavorGrid: {
       marginTop: 14,
       display: "grid",
       gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+      gridAutoRows: "minmax(420px, auto)",
       gap: 18,
       alignItems: "stretch",
     },
     flavorCardWrap: {
       minWidth: 0,
+      height: "100%",
+      display: "flex",
     },
     flavorCard: {
-      minHeight: 360,
+      height: "100%",
+      width: "100%",
+      minHeight: 420,
       borderRadius: 20,
       padding: 18,
       border: t.cardBorder,
@@ -410,6 +581,7 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
     },
     cardButtonRow: {
       marginTop: 12,
+      flexShrink: 0,
     },
     flavorBadge: {
       display: "inline-flex",
@@ -423,17 +595,36 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       letterSpacing: 1,
       transition: slowTransition,
     },
+    flavorOpenPill: {
+      display: "inline-flex",
+      alignItems: "center",
+      padding: "6px 10px",
+      borderRadius: 999,
+      border: t.pillBorder,
+      background: t.pillBg,
+      fontWeight: 900,
+      fontSize: 12,
+      opacity: 0.9,
+      transition: slowTransition,
+    },
     flavorSlug: {
       fontSize: 22,
-      lineHeight: 1.1,
+      lineHeight: 1.12,
       fontWeight: 950,
       letterSpacing: -0.6,
       wordBreak: "break-word",
       overflowWrap: "anywhere",
+      display: "-webkit-box",
+      WebkitLineClamp: 2,
+      WebkitBoxOrient: "vertical",
+      overflow: "hidden",
+      minHeight: 50,
+      marginTop: 4,
     },
     flavorDescription: {
       opacity: 0.78,
       lineHeight: 1.55,
+      minHeight: 74,
       display: "-webkit-box",
       WebkitLineClamp: 3,
       WebkitBoxOrient: "vertical",
@@ -441,7 +632,6 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       wordBreak: "break-word",
       overflowWrap: "anywhere",
     },
-
     metaRow: {
       marginTop: "auto",
       display: "grid",
@@ -494,7 +684,6 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
       flexWrap: "wrap",
       justifyContent: "flex-end",
     },
-
     empty: {
       marginTop: 12,
       padding: 14,
@@ -505,7 +694,6 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
     },
     emptyTitle: { fontWeight: 950 },
     emptyBody: { marginTop: 6, opacity: 0.7, fontSize: 13, lineHeight: 1.45 },
-
     loadingCard: {
       marginTop: 18,
       borderRadius: 20,
@@ -516,7 +704,6 @@ function getUi(theme: ResolvedTheme): Record<string, CSSProperties> {
     },
     loadingTitle: { fontWeight: 950, fontSize: 16 },
     loadingSub: { marginTop: 6, opacity: 0.7 },
-
     bgGradient: {
       position: "absolute",
       inset: 0,
@@ -567,6 +754,13 @@ export default function FlavorsPage() {
   const [duplicateSlugInput, setDuplicateSlugInput] = useState("");
   const [isDuplicating, setIsDuplicating] = useState(false);
 
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [sortMode, setSortMode] = useState<SortMode>("id-asc");
+  const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [page, setPage] = useState(0);
+  const [recentFlavorIds, setRecentFlavorIds] = useState<number[]>([]);
+
   const [themeMode, setThemeMode] = useState<ThemeMode>("system");
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>("dark");
 
@@ -588,6 +782,48 @@ export default function FlavorsPage() {
     [flavors]
   );
 
+  const filteredFlavors = useMemo(() => {
+    const q = search.trim().toLowerCase();
+
+    const filtered = flavors.filter((flavor) => {
+      const isDocumented = !!flavor.description?.trim();
+      if (statusFilter === "documented" && !isDocumented) return false;
+      if (statusFilter === "undocumented" && isDocumented) return false;
+
+      if (!q) return true;
+      return (
+        String(flavor.id).includes(q) ||
+        flavor.slug.toLowerCase().includes(q) ||
+        (flavor.description || "").toLowerCase().includes(q)
+      );
+    });
+
+    filtered.sort((a, b) => {
+      if (sortMode === "id-asc") return a.id - b.id;
+      if (sortMode === "id-desc") return b.id - a.id;
+      if (sortMode === "slug-asc") return a.slug.localeCompare(b.slug);
+      if (sortMode === "slug-desc") return b.slug.localeCompare(a.slug);
+      return 0;
+    });
+
+    return filtered;
+  }, [flavors, search, sortMode, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredFlavors.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages - 1);
+  const paginatedFlavors = filteredFlavors.slice(
+    safePage * PAGE_SIZE,
+    safePage * PAGE_SIZE + PAGE_SIZE
+  );
+
+  const recentFlavors = useMemo(() => {
+    const byId = new Map(flavors.map((flavor) => [flavor.id, flavor]));
+    return recentFlavorIds
+      .map((id) => byId.get(id))
+      .filter((flavor): flavor is Flavor => !!flavor)
+      .slice(0, 5);
+  }, [flavors, recentFlavorIds]);
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -595,9 +831,23 @@ export default function FlavorsPage() {
   useEffect(() => {
     if (!mounted) return;
 
-    const saved = window.localStorage.getItem(THEME_STORAGE_KEY);
-    if (saved === "system" || saved === "light" || saved === "dark") {
-      setThemeMode(saved);
+    const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (savedTheme === "system" || savedTheme === "light" || savedTheme === "dark") {
+      setThemeMode(savedTheme);
+    }
+
+    const savedRecent = window.localStorage.getItem(RECENT_FLAVORS_STORAGE_KEY);
+    if (savedRecent) {
+      try {
+        const parsed = JSON.parse(savedRecent);
+        if (Array.isArray(parsed)) {
+          setRecentFlavorIds(
+            parsed.filter((value) => typeof value === "number" && Number.isFinite(value))
+          );
+        }
+      } catch {
+        window.localStorage.removeItem(RECENT_FLAVORS_STORAGE_KEY);
+      }
     }
   }, [mounted]);
 
@@ -605,6 +855,22 @@ export default function FlavorsPage() {
     if (!mounted) return;
     window.localStorage.setItem(THEME_STORAGE_KEY, themeMode);
   }, [mounted, themeMode]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    window.localStorage.setItem(
+      RECENT_FLAVORS_STORAGE_KEY,
+      JSON.stringify(recentFlavorIds.slice(0, 10))
+    );
+  }, [mounted, recentFlavorIds]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [search, statusFilter, sortMode]);
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -665,9 +931,7 @@ export default function FlavorsPage() {
     }
 
     if (shouldDenyNonLocalAdminEmail(session.user.email)) {
-      setAuthError(
-        "This account is only allowed admin access on the local server."
-      );
+      setAuthError("This account is only allowed admin access on the local server.");
       setIsAllowedAdmin(false);
       setAuthChecked(true);
       return;
@@ -693,16 +957,13 @@ export default function FlavorsPage() {
       return;
     }
 
-    const allowed =
-      profile.is_superadmin === true || profile.is_matrix_admin === true;
+    const allowed = profile.is_superadmin === true || profile.is_matrix_admin === true;
 
     setIsAllowedAdmin(allowed);
     setAuthChecked(true);
 
     if (!allowed) {
-      setAuthError(
-        "You must be a superadmin or matrix admin to view this page."
-      );
+      setAuthError("You must be a superadmin or matrix admin to view this page.");
     }
   }
 
@@ -758,6 +1019,10 @@ export default function FlavorsPage() {
     window.location.replace("/");
   }
 
+  function rememberFlavor(flavorId: number) {
+    setRecentFlavorIds((prev) => [flavorId, ...prev.filter((id) => id !== flavorId)].slice(0, 10));
+  }
+
   function openDuplicateDialog(flavor: Flavor) {
     setDuplicateTarget(flavor);
     setDuplicateSlugInput(`${flavor.slug}-copy`);
@@ -775,6 +1040,7 @@ export default function FlavorsPage() {
         newSlug: duplicateSlugInput,
       });
 
+      rememberFlavor(newFlavorId);
       setDuplicateTarget(null);
       await fetchFlavors();
       router.push(`/flavors/${newFlavorId}`);
@@ -788,6 +1054,11 @@ export default function FlavorsPage() {
   const themeButtonStyle = (mode: ThemeMode): CSSProperties => ({
     ...ui.themeToggleBtn,
     ...(themeMode === mode ? ui.themeToggleBtnActive : {}),
+  });
+
+  const viewButtonStyle = (mode: ViewMode): CSSProperties => ({
+    ...ui.viewToggleBtn,
+    ...(viewMode === mode ? ui.viewToggleBtnActive : {}),
   });
 
   if (!mounted || !authChecked) {
@@ -874,13 +1145,7 @@ export default function FlavorsPage() {
                 gap: 8,
               }}
             >
-              <div
-                style={{
-                  fontSize: 14,
-                  opacity: 0.7,
-                  fontWeight: 500,
-                }}
-              >
+              <div style={{ fontSize: 14, opacity: 0.7, fontWeight: 500 }}>
                 Signed in as
               </div>
 
@@ -899,8 +1164,7 @@ export default function FlavorsPage() {
                 style={{
                   fontSize: 14,
                   opacity: 0.6,
-                  fontFamily:
-                    'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
                 }}
               >
                 Debug: {authError || "not-superadmin"}
@@ -922,8 +1186,6 @@ export default function FlavorsPage() {
                   background: t.mutedBg,
                   color: t.text,
                   cursor: "pointer",
-                  transition:
-                    "background 1600ms cubic-bezier(.22,1,.36,1), color 1600ms cubic-bezier(.22,1,.36,1), border-color 1600ms cubic-bezier(.22,1,.36,1), box-shadow 1600ms cubic-bezier(.22,1,.36,1)",
                 }}
               >
                 Sign out
@@ -949,38 +1211,19 @@ export default function FlavorsPage() {
 
             <h1 style={ui.h1}>Flavor Library</h1>
             <div style={ui.subline}>
-              Create, review, and open humor flavor configurations.
+              Search, filter, duplicate, and open humor flavor configurations without scrolling through 1,000+ cards.
             </div>
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              gap: 10,
-              flexWrap: "wrap",
-              alignItems: "center",
-            }}
-          >
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <div style={ui.themeToggleGroup}>
-              <button
-                type="button"
-                onClick={() => setThemeMode("light")}
-                style={themeButtonStyle("light")}
-              >
+              <button type="button" onClick={() => setThemeMode("light")} style={themeButtonStyle("light")}>
                 Light
               </button>
-              <button
-                type="button"
-                onClick={() => setThemeMode("dark")}
-                style={themeButtonStyle("dark")}
-              >
+              <button type="button" onClick={() => setThemeMode("dark")} style={themeButtonStyle("dark")}>
                 Dark
               </button>
-              <button
-                type="button"
-                onClick={() => setThemeMode("system")}
-                style={themeButtonStyle("system")}
-              >
+              <button type="button" onClick={() => setThemeMode("system")} style={themeButtonStyle("system")}>
                 System
               </button>
             </div>
@@ -992,33 +1235,16 @@ export default function FlavorsPage() {
         </header>
 
         <section style={ui.kpiGrid}>
-          <KpiCard
-            ui={ui}
-            title="Total Flavors"
-            value={String(flavorCount)}
-            subtitle="rows in humor_flavors"
-          />
-          <KpiCard
-            ui={ui}
-            title="With Description"
-            value={String(describedCount)}
-            subtitle="documented entries"
-          />
-          <KpiCard
-            ui={ui}
-            title="Latest ID"
-            value={String(latestId || 0)}
-            subtitle="highest current flavor id"
-          />
+          <KpiCard ui={ui} title="Total Flavors" value={String(flavorCount)} subtitle="rows in humor_flavors" />
+          <KpiCard ui={ui} title="Filtered Results" value={String(filteredFlavors.length)} subtitle="matching current search" />
+          <KpiCard ui={ui} title="With Description" value={String(describedCount)} subtitle="documented entries" />
         </section>
 
         <section style={ui.card}>
           <div style={ui.cardHeader}>
             <div>
               <div style={ui.cardTitle}>Create New Flavor</div>
-              <div style={ui.cardSub}>
-                Add a new humor flavor to the library.
-              </div>
+              <div style={ui.cardSub}>Add a new humor flavor to the library.</div>
             </div>
           </div>
 
@@ -1045,102 +1271,138 @@ export default function FlavorsPage() {
 
             <div style={ui.infoCard}>
               <div>
-                Preview slug:{" "}
-                <code style={ui.codeInline}>
-                  {slug.trim() ? slugify(slug) : "—"}
-                </code>
+                Preview slug: <code style={ui.codeInline}>{slug.trim() ? slugify(slug) : "—"}</code>
               </div>
-              <div>
-                {description.trim()
-                  ? `Description: "${description.trim()}"`
-                  : "Add a description for this humor flavor."}
-              </div>
+              <div>{description.trim() ? `Description: "${description.trim()}"` : "Add a description for this humor flavor."}</div>
             </div>
 
             <div style={{ marginTop: 14 }}>
-              <button
-                type="submit"
-                disabled={isSaving}
-                style={ui.primaryBtn}
-              >
+              <button type="submit" disabled={isSaving} style={ui.primaryBtn}>
                 {isSaving ? "Creating..." : "Create Flavor"}
               </button>
             </div>
           </form>
         </section>
 
+        {recentFlavors.length > 0 ? (
+          <section style={ui.compactCard}>
+            <div style={ui.cardHeader}>
+              <div>
+                <div style={ui.cardTitle}>Recently Opened</div>
+                <div style={ui.cardSub}>Quick access to flavors you opened from this browser.</div>
+              </div>
+              <button type="button" style={ui.duplicateSmallBtn} onClick={() => setRecentFlavorIds([])}>
+                Clear
+              </button>
+            </div>
+
+            <div style={ui.recentGrid}>
+              {recentFlavors.map((flavor) => (
+                <Link
+                  key={flavor.id}
+                  href={`/flavors/${flavor.id}`}
+                  style={ui.recentLink}
+                  onClick={() => rememberFlavor(flavor.id)}
+                >
+                  <div style={ui.recentTitle}>{getFlavorDisplayName(flavor)}</div>
+                  <div style={ui.recentSub}>Flavor {flavor.id}</div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         <section style={ui.card}>
           <div style={ui.cardHeader}>
             <div>
               <div style={ui.cardTitle}>All Flavors</div>
               <div style={ui.cardSub}>
-                Click any flavor to open its detail page and manage steps.
+                Search by ID, slug, or description. Default view is a dense table for scale.
               </div>
             </div>
-            <span style={ui.pill}>{flavors.length} total</span>
+            <span style={ui.pill}>{filteredFlavors.length} shown / {flavors.length} total</span>
           </div>
 
-          {flavors.length === 0 ? (
-            <EmptyState
+          <div style={ui.toolbar}>
+            <Field ui={ui} label="Search">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search slug, description, or ID..."
+                style={ui.input}
+              />
+            </Field>
+
+            <Field ui={ui} label="Status">
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} style={ui.select}>
+                <option value="all">All</option>
+                <option value="documented">Documented</option>
+                <option value="undocumented">Undocumented</option>
+              </select>
+            </Field>
+
+            <Field ui={ui} label="Sort">
+              <select value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)} style={ui.select}>
+                <option value="id-asc">ID ↑</option>
+                <option value="id-desc">ID ↓</option>
+                <option value="slug-asc">Slug A–Z</option>
+                <option value="slug-desc">Slug Z–A</option>
+              </select>
+            </Field>
+
+            <Field ui={ui} label="View">
+              <div style={ui.viewToggle}>
+                <button type="button" onClick={() => setViewMode("table")} style={viewButtonStyle("table")}>
+                  Table
+                </button>
+                <button type="button" onClick={() => setViewMode("cards")} style={viewButtonStyle("cards")}>
+                  Cards
+                </button>
+              </div>
+            </Field>
+          </div>
+
+          {filteredFlavors.length === 0 ? (
+            <EmptyState ui={ui} title="No matching flavors" body="Try clearing search or changing the status filter." />
+          ) : viewMode === "table" ? (
+            <FlavorTable
               ui={ui}
-              title="No flavors yet"
-              body="Create your first humor flavor to begin building step pipelines."
+              flavors={paginatedFlavors}
+              rememberFlavor={rememberFlavor}
+              openDuplicateDialog={openDuplicateDialog}
             />
           ) : (
-            <div style={ui.flavorGrid}>
-              {flavors.map((flavor) => (
-                <div key={flavor.id} style={ui.flavorCardWrap}>
-                  <Link href={`/flavors/${flavor.id}`} style={ui.flavorCard}>
-                    <div style={ui.flavorTopRow}>
-                      <div style={ui.flavorTopLeft}>
-                        <div style={ui.flavorBadge}>FLAVOR {flavor.id}</div>
-                      </div>
-
-                      <div style={ui.flavorTopRight}>
-                        <span style={ui.flavorOpenPill}>Open →</span>
-                      </div>
-                    </div>
-
-                    <div style={ui.flavorSlug}>{flavor.slug}</div>
-
-                    <div style={ui.flavorDescription}>
-                      {flavor.description || "No description"}
-                    </div>
-
-                    <div style={ui.metaRow}>
-                      <div style={ui.metaItem}>
-                        <div style={ui.metaLabel}>ID</div>
-                        <div style={ui.metaValue}>{flavor.id}</div>
-                      </div>
-
-                      <div style={ui.metaItem}>
-                        <div style={ui.metaLabel}>Status</div>
-                        <div style={ui.metaValue}>
-                          {flavor.description?.trim()
-                            ? "Documented"
-                            : "Undocumented"}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={ui.cardButtonRow}>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          openDuplicateDialog(flavor);
-                        }}
-                        style={ui.duplicateBtn}
-                      >
-                        Duplicate…
-                      </button>
-                    </div>
-                  </Link>
-                </div>
-              ))}
-            </div>
+            <FlavorCards
+              ui={ui}
+              flavors={paginatedFlavors}
+              rememberFlavor={rememberFlavor}
+              openDuplicateDialog={openDuplicateDialog}
+            />
           )}
+
+          {filteredFlavors.length > PAGE_SIZE ? (
+            <div style={ui.pager}>
+              <div style={{ opacity: 0.72, fontSize: 13 }}>
+                Showing {safePage * PAGE_SIZE + 1}–{Math.min((safePage + 1) * PAGE_SIZE, filteredFlavors.length)} of {filteredFlavors.length}
+              </div>
+
+              <div style={ui.pagerBtns}>
+                <button type="button" style={ui.pagerBtn} disabled={safePage === 0} onClick={() => setPage(0)}>
+                  First
+                </button>
+                <button type="button" style={ui.pagerBtn} disabled={safePage === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
+                  Prev
+                </button>
+                <span style={ui.smallPill}>Page {safePage + 1} / {totalPages}</span>
+                <button type="button" style={ui.pagerBtn} disabled={safePage >= totalPages - 1} onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}>
+                  Next
+                </button>
+                <button type="button" style={ui.pagerBtn} disabled={safePage >= totalPages - 1} onClick={() => setPage(totalPages - 1)}>
+                  Last
+                </button>
+              </div>
+            </div>
+          ) : null}
         </section>
 
         {duplicateTarget ? (
@@ -1151,18 +1413,14 @@ export default function FlavorsPage() {
             aria-labelledby="dup-dialog-title"
             onClick={() => !isDuplicating && setDuplicateTarget(null)}
           >
-            <div
-              style={ui.duplicateModalCard}
-              onClick={(e) => e.stopPropagation()}
-            >
+            <div style={ui.duplicateModalCard} onClick={(e) => e.stopPropagation()}>
               <div style={ui.cardHeader}>
                 <div>
                   <div style={ui.cardTitle} id="dup-dialog-title">
                     Duplicate flavor
                   </div>
                   <div style={ui.cardSub}>
-                    Copy <code style={ui.codeInline}>{duplicateTarget.slug}</code>{" "}
-                    and all of its steps. Choose a new unique slug.
+                    Copy <code style={ui.codeInline}>{getFlavorDisplayName(duplicateTarget)}</code> and all of its steps. Choose a new unique slug.
                   </div>
                 </div>
               </div>
@@ -1179,29 +1437,14 @@ export default function FlavorsPage() {
               </Field>
 
               <div style={{ marginTop: 10, fontSize: 13, opacity: 0.75 }}>
-                Preview:{" "}
-                <code style={ui.codeInline}>
-                  {duplicateSlugInput.trim()
-                    ? slugify(duplicateSlugInput)
-                    : "—"}
-                </code>
+                Preview: <code style={ui.codeInline}>{duplicateSlugInput.trim() ? slugify(duplicateSlugInput) : "—"}</code>
               </div>
 
               <div style={ui.duplicateModalActions}>
-                <button
-                  type="button"
-                  disabled={isDuplicating}
-                  onClick={() => setDuplicateTarget(null)}
-                  style={ui.secondaryActionBtn}
-                >
+                <button type="button" disabled={isDuplicating} onClick={() => setDuplicateTarget(null)} style={ui.secondaryActionBtn}>
                   Cancel
                 </button>
-                <button
-                  type="button"
-                  disabled={isDuplicating}
-                  onClick={() => void confirmDuplicateFlavor()}
-                  style={ui.primaryBtn}
-                >
+                <button type="button" disabled={isDuplicating} onClick={() => void confirmDuplicateFlavor()} style={ui.primaryBtn}>
                   {isDuplicating ? "Duplicating…" : "Create copy"}
                 </button>
               </div>
@@ -1210,6 +1453,127 @@ export default function FlavorsPage() {
         ) : null}
       </div>
     </main>
+  );
+}
+
+function FlavorTable({
+  ui,
+  flavors,
+  rememberFlavor,
+  openDuplicateDialog,
+}: {
+  ui: Record<string, CSSProperties>;
+  flavors: Flavor[];
+  rememberFlavor: (flavorId: number) => void;
+  openDuplicateDialog: (flavor: Flavor) => void;
+}) {
+  return (
+    <div style={ui.tableWrap}>
+      <table style={ui.table}>
+        <thead>
+          <tr>
+            <th style={{ ...ui.th, width: 90 }}>ID</th>
+            <th style={ui.th}>Slug</th>
+            <th style={ui.th}>Description</th>
+            <th style={{ ...ui.th, width: 150 }}>Status</th>
+            <th style={{ ...ui.th, width: 210, textAlign: "right" }}>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {flavors.map((flavor) => {
+            const documented = !!flavor.description?.trim();
+            return (
+              <tr key={flavor.id}>
+                <td style={ui.td}>{flavor.id}</td>
+                <td style={ui.td}>
+                  <Link href={`/flavors/${flavor.id}`} style={ui.rowLink} onClick={() => rememberFlavor(flavor.id)}>
+                    {getFlavorDisplayName(flavor)}
+                  </Link>
+                </td>
+                <td style={ui.td}>
+                  <div style={ui.tableDescription}>{flavor.description || "No description"}</div>
+                </td>
+                <td style={ui.td}>
+                  <span style={ui.smallPill}>{documented ? "Documented" : "Undocumented"}</span>
+                </td>
+                <td style={ui.td}>
+                  <div style={ui.actionRow}>
+                    <Link href={`/flavors/${flavor.id}`} style={ui.actionLink} onClick={() => rememberFlavor(flavor.id)}>
+                      Open →
+                    </Link>
+                    <button type="button" style={ui.duplicateSmallBtn} onClick={() => openDuplicateDialog(flavor)}>
+                      Duplicate…
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function FlavorCards({
+  ui,
+  flavors,
+  rememberFlavor,
+  openDuplicateDialog,
+}: {
+  ui: Record<string, CSSProperties>;
+  flavors: Flavor[];
+  rememberFlavor: (flavorId: number) => void;
+  openDuplicateDialog: (flavor: Flavor) => void;
+}) {
+  return (
+    <div style={ui.flavorGrid}>
+      {flavors.map((flavor) => (
+        <div key={flavor.id} style={ui.flavorCardWrap}>
+          <Link href={`/flavors/${flavor.id}`} style={ui.flavorCard} onClick={() => rememberFlavor(flavor.id)}>
+            <div style={ui.flavorTopRow}>
+              <div style={ui.flavorTopLeft}>
+                <div style={ui.flavorBadge}>FLAVOR {flavor.id}</div>
+              </div>
+
+              <div style={ui.flavorTopRight}>
+                <span style={ui.flavorOpenPill}>Open →</span>
+              </div>
+            </div>
+
+            <div style={ui.flavorSlug}>{getFlavorDisplayName(flavor)}</div>
+
+            <div style={ui.flavorDescription}>{flavor.description || "No description"}</div>
+
+            <div style={ui.metaRow}>
+              <div style={ui.metaItem}>
+                <div style={ui.metaLabel}>ID</div>
+                <div style={ui.metaValue}>{flavor.id}</div>
+              </div>
+
+              <div style={ui.metaItem}>
+                <div style={ui.metaLabel}>Status</div>
+                <div style={ui.metaValue}>{flavor.description?.trim() ? "Documented" : "Undocumented"}</div>
+              </div>
+            </div>
+
+            <div style={ui.cardButtonRow}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  openDuplicateDialog(flavor);
+                }}
+                style={ui.duplicateBtn}
+              >
+                Duplicate…
+              </button>
+            </div>
+          </Link>
+        </div>
+      ))}
+    </div>
   );
 }
 

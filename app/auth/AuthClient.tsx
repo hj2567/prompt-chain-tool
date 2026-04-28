@@ -1,10 +1,21 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import { useEffect } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseClient";
 
+const POST_AUTH_NEXT_KEY = "post_auth_next";
+
+type Theme = "light" | "dark";
+
 export default function AuthClient() {
+  const [theme, setTheme] = useState<Theme>("dark");
+
+  useEffect(() => {
+    const hour = new Date().getHours();
+    setTheme(hour >= 7 && hour < 19 ? "light" : "dark");
+  }, []);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const next = params.get("next") || "/flavors";
@@ -47,9 +58,11 @@ export default function AuthClient() {
     return () => window.removeEventListener("pageshow", onPageShow);
   }, []);
 
+  const ui = useMemo(() => getUI(theme), [theme]);
+
   return (
     <main style={ui.shell}>
-      <Background />
+      <Background ui={ui} />
 
       <div style={ui.center}>
         <div style={ui.card}>
@@ -64,7 +77,7 @@ export default function AuthClient() {
 
           <div style={ui.footerRow}>
             <span style={ui.footerPill}>OAuth 2.0</span>
-            <span style={ui.footerPill}>Google Provider</span>
+            <span style={ui.footerPill}>Google</span>
             <span style={ui.footerPill}>Supabase</span>
           </div>
 
@@ -77,7 +90,7 @@ export default function AuthClient() {
   );
 }
 
-function Background() {
+function Background({ ui }: { ui: any }) {
   return (
     <>
       <div style={ui.bgGradient} />
@@ -88,133 +101,144 @@ function Background() {
   );
 }
 
-const ui = {
-  shell: {
-    minHeight: "100vh",
-    position: "relative",
-    overflow: "hidden",
-    fontFamily:
-      'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
-    color: "white",
-    background: "#06070a",
-  } satisfies CSSProperties,
+/* ========================= */
+/* 🎨 THEME SYSTEM */
+/* ========================= */
 
-  center: {
-    position: "relative",
-    zIndex: 2,
-    minHeight: "100vh",
-    display: "grid",
-    placeItems: "center",
-    padding: 24,
-  } satisfies CSSProperties,
+function getUI(theme: Theme): Record<string, CSSProperties> {
+  const isDark = theme === "dark";
 
-  card: {
-    width: "min(560px, 92vw)",
-    borderRadius: 28,
-    padding: 28,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "rgba(255,255,255,0.06)",
-    boxShadow: "0 18px 70px rgba(0,0,0,0.55)",
-    backdropFilter: "blur(10px)",
-    textAlign: "center",
-  } satisfies CSSProperties,
+  return {
+    shell: {
+      minHeight: "100vh",
+      position: "relative",
+      overflow: "hidden",
+      fontFamily:
+        'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto',
+      color: isDark ? "white" : "#111827",
+      background: isDark ? "#06070a" : "#f6f7fb",
+      transition: "all 0.6s ease",
+    },
 
-  kicker: {
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "7px 12px",
-    borderRadius: 999,
-    border: "1px solid rgba(255,255,255,0.14)",
-    background: "rgba(255,255,255,0.06)",
-    fontWeight: 950,
-    fontSize: 12,
-    letterSpacing: 2,
-    opacity: 0.95,
-    marginBottom: 18,
-  } satisfies CSSProperties,
+    center: {
+      position: "relative",
+      zIndex: 2,
+      minHeight: "100vh",
+      display: "grid",
+      placeItems: "center",
+      padding: 24,
+    },
 
-  spinnerWrap: {
-    display: "flex",
-    justifyContent: "center",
-    marginBottom: 20,
-  } satisfies CSSProperties,
+    card: {
+      width: "min(560px, 92vw)",
+      borderRadius: 28,
+      padding: 28,
+      border: isDark
+        ? "1px solid rgba(255,255,255,0.14)"
+        : "1px solid rgba(0,0,0,0.08)",
+      background: isDark
+        ? "rgba(255,255,255,0.06)"
+        : "rgba(255,255,255,0.9)",
+      boxShadow: isDark
+        ? "0 18px 70px rgba(0,0,0,0.55)"
+        : "0 18px 40px rgba(0,0,0,0.08)",
+      backdropFilter: "blur(10px)",
+      textAlign: "center",
+    },
 
-  spinner: {
-    width: 60,
-    height: 60,
-    borderRadius: "50%",
-    border: "4px solid rgba(255,255,255,0.2)",
-    borderTopColor: "#fff",
-    animation: "spin 0.9s linear infinite",
-  } satisfies CSSProperties,
+    kicker: {
+      display: "inline-flex",
+      padding: "7px 12px",
+      borderRadius: 999,
+      background: isDark
+        ? "rgba(255,255,255,0.06)"
+        : "rgba(0,0,0,0.06)",
+      fontWeight: 950,
+      fontSize: 12,
+      marginBottom: 18,
+    },
 
-  title: {
-    fontSize: 36,
-    fontWeight: 950,
-    letterSpacing: -1,
-    marginBottom: 10,
-  } satisfies CSSProperties,
+    spinnerWrap: {
+      display: "flex",
+      justifyContent: "center",
+      marginBottom: 20,
+    },
 
-  subtitle: {
-    opacity: 0.75,
-    fontSize: 15,
-    lineHeight: 1.5,
-  } satisfies CSSProperties,
+    spinner: {
+      width: 60,
+      height: 60,
+      borderRadius: "50%",
+      border: isDark
+        ? "4px solid rgba(255,255,255,0.2)"
+        : "4px solid rgba(0,0,0,0.1)",
+      borderTopColor: isDark ? "#fff" : "#111",
+      animation: "spin 0.9s linear infinite",
+    },
 
-  footerRow: {
-    marginTop: 20,
-    display: "flex",
-    gap: 10,
-    justifyContent: "center",
-    flexWrap: "wrap",
-    opacity: 0.9,
-  } satisfies CSSProperties,
+    title: {
+      fontSize: 32,
+      fontWeight: 950,
+      marginBottom: 10,
+    },
 
-  footerPill: {
-    fontSize: 12,
-    padding: "6px 10px",
-    borderRadius: 999,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,255,255,0.05)",
-    opacity: 0.85,
-  } satisfies CSSProperties,
+    subtitle: {
+      opacity: 0.7,
+      fontSize: 14,
+    },
 
-  bgGradient: {
-    position: "absolute",
-    inset: 0,
-    background:
-      "radial-gradient(1200px 700px at 10% 10%, rgba(120,140,255,0.22), transparent 55%), radial-gradient(900px 650px at 90% 20%, rgba(255,140,200,0.14), transparent 60%), radial-gradient(900px 650px at 30% 110%, rgba(0,255,180,0.10), transparent 55%)",
-  } satisfies CSSProperties,
+    footerRow: {
+      marginTop: 20,
+      display: "flex",
+      gap: 10,
+      justifyContent: "center",
+      flexWrap: "wrap",
+    },
 
-  bgGlowA: {
-    position: "absolute",
-    width: 900,
-    height: 900,
-    left: -320,
-    top: -340,
-    background:
-      "radial-gradient(circle, rgba(130,120,255,0.18), transparent 60%)",
-    filter: "blur(2px)",
-  } satisfies CSSProperties,
+    footerPill: {
+      fontSize: 12,
+      padding: "6px 10px",
+      borderRadius: 999,
+      background: isDark
+        ? "rgba(255,255,255,0.05)"
+        : "rgba(0,0,0,0.05)",
+    },
 
-  bgGlowB: {
-    position: "absolute",
-    width: 900,
-    height: 900,
-    right: -320,
-    bottom: -380,
-    background:
-      "radial-gradient(circle, rgba(255,120,200,0.14), transparent 60%)",
-    filter: "blur(2px)",
-  } satisfies CSSProperties,
+    bgGradient: {
+      position: "absolute",
+      inset: 0,
+      background: isDark
+        ? "radial-gradient(1200px 700px at 10% 10%, rgba(120,140,255,0.22), transparent 55%)"
+        : "radial-gradient(1200px 700px at 10% 10%, rgba(99,102,241,0.12), transparent 55%)",
+    },
 
-  bgNoise: {
-    position: "absolute",
-    inset: 0,
-    backgroundImage:
-      "url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22120%22 height=%22120%22><filter id=%22n%22 x=%220%22 y=%220%22><feTurbulence type=%22fractalNoise%22 baseFrequency=%220.8%22 numOctaves=%224%22 stitchTiles=%22stitch%22/></filter><rect width=%22120%22 height=%22120%22 filter=%22url(%23n)%22 opacity=%220.08%22/></svg>')",
-    opacity: 0.22,
-    mixBlendMode: "overlay",
-    pointerEvents: "none",
-  } satisfies CSSProperties,
-};
+    bgGlowA: {
+      position: "absolute",
+      width: 900,
+      height: 900,
+      left: -320,
+      top: -340,
+      background: isDark
+        ? "rgba(130,120,255,0.18)"
+        : "rgba(99,102,241,0.12)",
+      filter: "blur(80px)",
+    },
+
+    bgGlowB: {
+      position: "absolute",
+      width: 900,
+      height: 900,
+      right: -320,
+      bottom: -380,
+      background: isDark
+        ? "rgba(255,120,200,0.14)"
+        : "rgba(236,72,153,0.10)",
+      filter: "blur(80px)",
+    },
+
+    bgNoise: {
+      position: "absolute",
+      inset: 0,
+      opacity: isDark ? 0.2 : 0.05,
+    },
+  };
+}

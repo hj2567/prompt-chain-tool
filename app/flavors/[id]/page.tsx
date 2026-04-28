@@ -1572,26 +1572,47 @@ export default function FlavorDetailPage({
       const { imageId, captionRequestId: captionRequestIdFromUpload } =
         await uploadImageFromUrl(testImageUrl.trim());
 
-      // Only send fields the pipeline expects; extra keys have caused server errors.
       const genStarted = performance.now();
-      const result = await apiPost<any>("/pipeline/generate-captions", {
-        imageId,
-      });
+      const allCaptions: string[] = [];
+      let lastResult: any = null;
+
+      // The API currently returns only one caption per generate call,
+      // so run generation five times for the same uploaded image.
+      for (let i = 0; i < 5; i++) {
+        const result = await apiPost<any>("/pipeline/generate-captions", {
+          imageId,
+        });
+
+        lastResult = result;
+
+        if (isPipelineErrorPayload(result)) {
+          throw new Error(
+            typeof result.message === "string" && result.message.length > 0
+              ? result.message
+              : "Caption generation failed (API returned an error payload)."
+          );
+        }
+
+        const captionsFromRun = normalizeCaptions(result);
+
+        for (const caption of captionsFromRun) {
+          const cleanCaption = caption.trim();
+          if (cleanCaption && !allCaptions.includes(cleanCaption)) {
+            allCaptions.push(cleanCaption);
+          }
+        }
+      }
+
       const processingTimeSeconds = Math.max(
         0,
         (performance.now() - genStarted) / 1000
       );
 
-      if (isPipelineErrorPayload(result)) {
-        throw new Error(
-          typeof result.message === "string" && result.message.length > 0
-            ? result.message
-            : "Caption generation failed (API returned an error payload)."
-        );
+      if (allCaptions.length === 0) {
+        throw new Error("No captions were returned by the API.");
       }
 
-      const captions = normalizeCaptions(result);
-      setStepOutputs(captions);
+      setStepOutputs(allCaptions);
 
       const supabase = getSupabaseBrowserClient();
       const {
@@ -1606,13 +1627,13 @@ export default function FlavorDetailPage({
         supabase,
         profileId: persistUserId,
         imageId,
-        pipelineResult: result,
+        pipelineResult: lastResult,
         fromUpload: captionRequestIdFromUpload,
       });
 
       try {
         await persistRunCaptionsToSupabase(
-          captions,
+          allCaptions,
           processingTimeSeconds,
           captionRequestId
         );
